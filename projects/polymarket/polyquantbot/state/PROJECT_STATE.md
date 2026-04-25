@@ -1,5 +1,5 @@
-Last Updated : 2026-04-25 20:50
-Status       : Priority 5 portfolio management logic is merged to main via PR #774 under degen structure mode; COMMANDER review accepted; full SENTINEL sweep is deferred to the pre-public/public-ready/live-capital gate; next internal priority is Priority 6 multi-wallet orchestration.
+Last Updated : 2026-04-25 21:30
+Status       : Priority 6 multi-wallet orchestration Phase A is in progress on NWAP/multi-wallet-orchestration; orchestration foundation (sections 37–38) built with WalletOrchestrator, WalletSelectionPolicy, and domain schemas; 10/10 tests passing (WO-01..WO-10); SENTINEL MAJOR validation required before Phase B begins.
 
 [COMPLETED]
 - Priority 1 Telegram live baseline truth-sync lane is closed with recorded live command evidence under projects/polymarket/polyquantbot/reports/forge/.
@@ -12,18 +12,19 @@ Status       : Priority 5 portfolio management logic is merged to main via PR #7
 - Priority 5 portfolio management logic is merged to main via PR #774 from NWAP/portfolio-management-logic; schemas, store, service, 6 routes, and 29/29 tests passing (PM-01..PM-28 + PM-13b); COMMANDER degen structure review accepted and full SENTINEL is deferred to pre-public sweep.
 
 [IN PROGRESS]
-- None
+- Priority 6 multi-wallet orchestration Phase A (sections 37–38) -- WalletOrchestrator + WalletSelectionPolicy + domain schemas built on NWAP/multi-wallet-orchestration; 10/10 tests passing; awaiting SENTINEL MAJOR validation before Phase B.
 
 [NOT STARTED]
-- Multi-wallet orchestration.
+- Priority 6 Phase B (sections 39–40): cross-wallet state aggregation + per-wallet controls.
+- Priority 6 Phase C (sections 41–42): UX/API, recovery, persistence, integration tests.
 - Settlement, retry, reconciliation, and ops automation.
 - Capital readiness and live trading gating.
 - Final public product completion, launch assets, and handoff.
 
 [NEXT PRIORITY]
-- Priority 6 multi-wallet orchestration internal-structure kickoff -- scope sections 37-42 in projects/polymarket/polyquantbot/state/WORKTODO.md -- branch to be declared by COMMANDER.
+- SENTINEL validation required for Priority 6 Phase A (MAJOR tier) -- source: projects/polymarket/polyquantbot/reports/forge/multi-wallet-orchestration-phase-a.md.
+- After SENTINEL verdict, COMMANDER decides merge and opens Phase B scope (sections 39–40: cross-wallet state + controls).
 - Maintain no public-ready, live-trading-ready, or production-capital-ready claim until full SENTINEL pre-public sweep.
-- Full SENTINEL sweep is required before public launch / public-ready claim / live-capital claim.
 
 [KNOWN ISSUES]
 - PaperBetaWorker.price_updater() is a no-op stub -- unrealized PnL updates require real market price polling (deferred to post-Priority-3 market data integration lane).
