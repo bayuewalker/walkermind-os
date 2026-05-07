@@ -1,5 +1,5 @@
-Last Updated : 2026-05-07 20:51 Asia/Jakarta
-Status       : P3d signal scan loop + execution queue wiring FORGE COMPLETE. WARP•SENTINEL validation required before merge. 459/459 tests green. Activation guards NOT SET.
+Last Updated : 2026-05-07 22:30 Asia/Jakarta
+Status       : P3d SENTINEL APPROVED 96/100. Zero critical issues. 463/463 tests green. Activation guards NOT SET. Awaiting WARP🔹CMD merge decision.
 
 [COMPLETED]
 - PR #852 — feat(crusaderbot): import full Replit build R1-R11
@@ -23,13 +23,13 @@ Status       : P3d signal scan loop + execution queue wiring FORGE COMPLETE. WAR
 - P3c — Signal Following strategy — PR #892 MERGED (5ee8487e), MAJOR, SENTINEL APPROVED 100/100
 
 [IN PROGRESS]
-- P3d — Per-user signal scan loop + execution queue wiring (MAJOR — FORGE COMPLETE, SENTINEL pending)
+- P3d — Per-user signal scan loop + execution queue wiring (MAJOR — SENTINEL APPROVED 96/100, awaiting WARP🔹CMD merge decision)
 
 [NOT STARTED]
-- R12 — Deployment (Fly.io) final (MAJOR — blocked on P3d complete + activation guards reviewed)
+- R12 — Deployment (Fly.io) final (MAJOR — blocked on P3d merge + activation guards reviewed)
 
 [NEXT PRIORITY]
-- WARP•SENTINEL validation required for P3d before merge. Source: projects/polymarket/crusaderbot/reports/forge/p3d-signal-scan-execution-queue.md. Tier: MAJOR
+- WARP🔹CMD merge decision for P3d (PR #897). Report: projects/polymarket/crusaderbot/reports/sentinel/p3d-signal-scan-execution-queue.md. Verdict: APPROVED 96/100.
 - After P3d merge: live activation sequence gated on EXECUTION_PATH_VALIDATED + CAPITAL_MODE_CONFIRMED + ENABLE_LIVE_TRADING
 - After P3d merge: R12 final Fly.io deployment (MAJOR — last R12 lane, blocked on P3d + activation guards)
 
