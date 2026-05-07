@@ -193,7 +193,8 @@ async def _mark_failed(
 
 
 def _build_user_context(row: dict[str, Any]) -> UserContext:
-    allocation = float(row.get("capital_allocation_pct") or 0.10)
+    _alloc = row.get("capital_allocation_pct")
+    allocation = float(_alloc if _alloc is not None else 0.10)
     allocation = max(0.0, min(1.0, allocation))
     sub_account_id = str(row.get("sub_account_id") or row["user_id"])
     return UserContext(
