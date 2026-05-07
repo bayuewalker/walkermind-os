@@ -236,9 +236,13 @@ def _build_gate_context(
 ) -> GateContext:
     _side = cand.side.lower()
     if _side == "no":
-        _price = float(market.get("no_price") or market.get("yes_price") or 0.5)
+        _primary, _fallback = market.get("no_price"), market.get("yes_price")
     else:
-        _price = float(market.get("yes_price") or market.get("no_price") or 0.5)
+        _primary, _fallback = market.get("yes_price"), market.get("no_price")
+    # Use is-not-None so a cached price of exactly 0 is not discarded.
+    _price = float(
+        _primary if _primary is not None else (_fallback if _fallback is not None else 0.5)
+    )
     return GateContext(
         user_id=UUID(str(row["user_id"])),
         telegram_user_id=int(row["telegram_user_id"]),
