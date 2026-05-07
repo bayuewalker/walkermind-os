@@ -76,13 +76,11 @@ async def _load_enrolled_users() -> list[dict[str, Any]]:
                 s.sl_pct,
                 s.daily_loss_override,
                 us.weight                AS capital_allocation_pct,
-                sa.id                    AS sub_account_id,
                 COALESCE(urp.profile_name, s.risk_profile, 'balanced') AS resolved_profile
             FROM user_strategies us
             JOIN users          u   ON u.id  = us.user_id
             JOIN wallets        w   ON w.user_id = u.id
             JOIN user_settings  s   ON s.user_id = u.id
-            LEFT JOIN sub_accounts     sa  ON sa.user_id = u.id
             LEFT JOIN user_risk_profile urp ON urp.user_id = u.id
             WHERE us.strategy_name = $1
               AND us.enabled        = TRUE
@@ -236,6 +234,11 @@ def _build_gate_context(
     market: dict[str, Any],
     idempotency_key: str,
 ) -> GateContext:
+    _side = cand.side.lower()
+    if _side == "no":
+        _price = float(market.get("no_price") or market.get("yes_price") or 0.5)
+    else:
+        _price = float(market.get("yes_price") or market.get("no_price") or 0.5)
     return GateContext(
         user_id=UUID(str(row["user_id"])),
         telegram_user_id=int(row["telegram_user_id"]),
@@ -243,9 +246,9 @@ def _build_gate_context(
         auto_trade_on=bool(row["auto_trade_on"]),
         paused=bool(row["paused"]),
         market_id=cand.market_id,
-        side=cand.side.lower(),
+        side=_side,
         proposed_size_usdc=Decimal(str(cand.suggested_size_usdc)),
-        proposed_price=float(market.get("yes_price") or market.get("no_price") or 0.5),
+        proposed_price=_price,
         market_liquidity=float(market.get("liquidity_usdc") or 0.0),
         market_status=str(market.get("status") or ""),
         edge_bps=None,
@@ -272,6 +275,7 @@ async def _process_candidate(
     cand: SignalCandidate,
 ) -> None:
     user_id = UUID(str(row["user_id"]))
+    side = cand.side.lower()  # execution engines compare lowercase; normalize once here
     pub_id_raw = cand.metadata.get("publication_id")
     pub_uuid: UUID | None = None
     if pub_id_raw:
@@ -283,7 +287,7 @@ async def _process_candidate(
     log = logger.bind(
         user_id=str(user_id),
         market_id=cand.market_id,
-        side=cand.side,
+        side=side,
         strategy=_STRATEGY_NAME,
         publication_id=str(pub_uuid) if pub_uuid else None,
     )
@@ -306,7 +310,7 @@ async def _process_candidate(
         return
 
     # 3. Build idempotency key + gate context.
-    idem_key = _build_idempotency_key(user_id, cand.market_id, cand.side, pub_uuid)
+    idem_key = _build_idempotency_key(user_id, cand.market_id, side, pub_uuid)
     try:
         gate_ctx = _build_gate_context(
             row=row, cand=cand, market=market, idempotency_key=idem_key,
@@ -339,7 +343,7 @@ async def _process_candidate(
             user_id=user_id,
             strategy_name=_STRATEGY_NAME,
             market_id=cand.market_id,
-            side=cand.side,
+            side=side,
             publication_id=pub_uuid,
             suggested_size_usdc=Decimal(str(cand.suggested_size_usdc)),
             final_size_usdc=final_size,
@@ -368,7 +372,7 @@ async def _process_candidate(
             market_question=str(market.get("question") or ""),
             yes_token_id=market.get("yes_token_id"),
             no_token_id=market.get("no_token_id"),
-            side=cand.side,
+            side=side,
             size_usdc=final_size,
             price=gate_ctx.proposed_price,
             idempotency_key=idem_key,
