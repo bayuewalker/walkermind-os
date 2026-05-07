@@ -328,9 +328,9 @@ def test_process_candidate_skips_when_already_queued():
     row = _user_row()
     cand = _candidate()
 
-    # _publication_already_queued returns True (existing row found)
-    conn_dedup = _FakeConn(fetchrow_results=[{"id": uuid4()}])
-    with _patch_pool(conn_dedup):
+    # No stale 'queued' row; but an executed/failed row already exists.
+    with patch.object(job, "_load_stale_queued_row", return_value=None), \
+            patch.object(job, "_publication_already_queued", return_value=True):
         asyncio.run(job._process_candidate(row, cand))
     # No execution should be attempted — test passes if no unhandled exception.
 
@@ -376,7 +376,8 @@ def test_process_candidate_logs_rejection_and_does_not_execute():
     async def _fake_router(**kwargs):
         executed["called"] = True
 
-    with patch.object(job, "_publication_already_queued", return_value=False), \
+    with patch.object(job, "_load_stale_queued_row", return_value=None), \
+            patch.object(job, "_publication_already_queued", return_value=False), \
             patch.object(job, "_load_market", return_value=_market_row()), \
             patch.object(
                 job, "risk_evaluate",
@@ -411,7 +412,8 @@ def test_process_candidate_happy_path_inserts_queue_and_executes():
 
     gate_ok = GateResult(True, "approved", None, Decimal("10"), "paper")
 
-    with patch.object(job, "_publication_already_queued", return_value=False), \
+    with patch.object(job, "_load_stale_queued_row", return_value=None), \
+            patch.object(job, "_publication_already_queued", return_value=False), \
             patch.object(job, "_load_market", return_value=_market_row()), \
             patch.object(job, "risk_evaluate", return_value=gate_ok), \
             patch.object(job, "_insert_execution_queue", return_value=True), \
@@ -446,7 +448,8 @@ def test_process_candidate_marks_failed_when_router_raises():
 
     gate_ok = GateResult(True, "approved", None, Decimal("10"), "paper")
 
-    with patch.object(job, "_publication_already_queued", return_value=False), \
+    with patch.object(job, "_load_stale_queued_row", return_value=None), \
+            patch.object(job, "_publication_already_queued", return_value=False), \
             patch.object(job, "_load_market", return_value=_market_row()), \
             patch.object(job, "risk_evaluate", return_value=gate_ok), \
             patch.object(job, "_insert_execution_queue", return_value=True), \
@@ -477,7 +480,8 @@ def test_process_candidate_skips_when_concurrent_insert_conflict():
 
     gate_ok = GateResult(True, "approved", None, Decimal("10"), "paper")
 
-    with patch.object(job, "_publication_already_queued", return_value=False), \
+    with patch.object(job, "_load_stale_queued_row", return_value=None), \
+            patch.object(job, "_publication_already_queued", return_value=False), \
             patch.object(job, "_load_market", return_value=_market_row()), \
             patch.object(job, "risk_evaluate", return_value=gate_ok), \
             patch.object(job, "_insert_execution_queue", return_value=False), \
@@ -507,7 +511,8 @@ def test_process_candidate_risk_rejects_inactive_market():
     # Gate rejects because market is resolved (step 13).
     gate_rejected = GateResult(False, "market_inactive", 13)
 
-    with patch.object(job, "_publication_already_queued", return_value=False), \
+    with patch.object(job, "_load_stale_queued_row", return_value=None), \
+            patch.object(job, "_publication_already_queued", return_value=False), \
             patch.object(job, "_load_market", return_value=_market_row(status="resolved")), \
             patch.object(job, "risk_evaluate", return_value=gate_rejected), \
             patch.object(job, "router_execute", side_effect=_fake_router):
@@ -578,3 +583,44 @@ def test_run_once_scan_failure_does_not_stop_other_users():
 
     # First user scan raised — second user still processed.
     assert processed["calls"] == 1
+
+
+# ---------------------------------------------------------------------------
+# _process_candidate — crash-recovery resume (stale 'queued' row)
+# ---------------------------------------------------------------------------
+
+
+def test_process_candidate_resumes_stale_queued_row():
+    """Stale 'queued' row from a prior crashed tick is re-executed without gate."""
+    bootstrap_default_strategies()
+    row = _user_row()
+    cand = _candidate()
+
+    stale = {
+        "market_id": _MARKET_ID,
+        "side": "yes",
+        "final_size_usdc": Decimal("10"),
+        "suggested_size_usdc": Decimal("10"),
+        "idempotency_key": "sf:abc123",
+        "chosen_mode": "paper",
+    }
+    executed = {"called": False}
+    marked = {"called": False}
+
+    async def _fake_router(**kwargs):
+        executed["called"] = True
+
+    async def _fake_mark_executed(*a, **kw):
+        marked["called"] = True
+
+    with patch.object(job, "_load_stale_queued_row", return_value=stale), \
+            patch.object(job, "_load_market", return_value=_market_row()), \
+            patch.object(job, "router_execute", side_effect=_fake_router), \
+            patch.object(job, "_mark_executed", side_effect=_fake_mark_executed), \
+            patch.object(job, "risk_evaluate") as mock_gate:
+        asyncio.run(job._process_candidate(row, cand))
+
+    assert executed["called"]
+    assert marked["called"]
+    # Gate must NOT be called — crash recovery bypasses the risk gate entirely.
+    mock_gate.assert_not_called()

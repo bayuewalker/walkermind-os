@@ -116,6 +116,30 @@ async def _publication_already_queued(user_id: UUID, publication_id: UUID) -> bo
     return row is not None
 
 
+async def _load_stale_queued_row(
+    user_id: UUID,
+    publication_id: UUID,
+) -> dict[str, Any] | None:
+    """Return the stale status='queued' row for crash-recovery resume, or None.
+
+    A 'queued' row means a prior tick inserted the queue entry and approved
+    the gate but crashed before router_execute completed.  The row must be
+    resumed without re-running the gate because: (a) gate step 10 rejects
+    the same idempotency_key for 30 min, and (b) gate step 9 permanently
+    rejects the original signal after the 5-min staleness window expires.
+    """
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT market_id, side, final_size_usdc, suggested_size_usdc, "
+            "       idempotency_key, chosen_mode "
+            "  FROM execution_queue "
+            " WHERE user_id = $1 AND publication_id = $2 AND status = 'queued'",
+            user_id, publication_id,
+        )
+    return dict(row) if row else None
+
+
 async def _insert_execution_queue(
     *,
     user_id: UUID,
@@ -139,15 +163,7 @@ async def _insert_execution_queue(
                  chosen_mode, status)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'queued')
             ON CONFLICT (user_id, publication_id) WHERE publication_id IS NOT NULL
-            DO UPDATE SET
-                status              = 'queued',
-                queued_at           = NOW(),
-                idempotency_key     = EXCLUDED.idempotency_key,
-                suggested_size_usdc = EXCLUDED.suggested_size_usdc,
-                final_size_usdc     = EXCLUDED.final_size_usdc,
-                error_detail        = NULL,
-                executed_at         = NULL
-            WHERE execution_queue.status = 'queued'
+            DO NOTHING
             RETURNING id
             """,
             user_id, strategy_name, market_id, side, publication_id,
@@ -306,6 +322,68 @@ async def _process_candidate(
         strategy=_STRATEGY_NAME,
         publication_id=str(pub_uuid) if pub_uuid else None,
     )
+
+    # 0. Crash-recovery resume — a prior tick inserted a 'queued' row but
+    #    crashed before router_execute.  Re-running the gate would fail at
+    #    step 10 (idempotency_key already recorded for 30 min) or step 9
+    #    (signal stale after 5 min), so execute directly from the stored row.
+    if pub_uuid is not None:
+        try:
+            stale = await _load_stale_queued_row(user_id, pub_uuid)
+        except Exception as exc:
+            log.warning("stale_queue_check_failed", error=str(exc))
+            stale = None
+        if stale is not None:
+            stale_market = await _load_market(stale["market_id"])
+            if stale_market is None:
+                log.info("scan_outcome", outcome="skipped_market_not_synced")
+                return
+            _stale_side = str(stale["side"])
+            if _stale_side == "no":
+                _sp, _sf = stale_market.get("no_price"), stale_market.get("yes_price")
+            else:
+                _sp, _sf = stale_market.get("yes_price"), stale_market.get("no_price")
+            _stale_price = float(
+                _sp if _sp is not None else (_sf if _sf is not None else 0.5)
+            )
+            _stale_idem = str(stale["idempotency_key"])
+            _stale_size = Decimal(str(stale["final_size_usdc"]))
+            _tp = float(row["tp_pct"]) if row.get("tp_pct") is not None else None
+            _sl = float(row["sl_pct"]) if row.get("sl_pct") is not None else None
+            try:
+                await router_execute(
+                    chosen_mode=str(stale["chosen_mode"]),
+                    user_id=user_id,
+                    telegram_user_id=int(row["telegram_user_id"]),
+                    access_tier=int(row["access_tier"]),
+                    market_id=stale["market_id"],
+                    market_question=str(stale_market.get("question") or ""),
+                    yes_token_id=stale_market.get("yes_token_id"),
+                    no_token_id=stale_market.get("no_token_id"),
+                    side=_stale_side,
+                    size_usdc=_stale_size,
+                    price=_stale_price,
+                    idempotency_key=_stale_idem,
+                    strategy_type=_STRATEGY_NAME,
+                    tp_pct=_tp,
+                    sl_pct=_sl,
+                    trading_mode=str(row.get("trading_mode") or "paper"),
+                )
+                await _mark_executed(user_id, pub_uuid, _stale_idem)
+                log.info(
+                    "scan_outcome",
+                    outcome="resumed",
+                    mode=stale["chosen_mode"],
+                    size=str(_stale_size),
+                )
+            except Exception as exc:
+                err_str = f"{type(exc).__name__}: {exc}"
+                log.error("scan_outcome", outcome="failed", error=err_str)
+                try:
+                    await _mark_failed(user_id, pub_uuid, _stale_idem, err_str)
+                except Exception as mark_exc:
+                    log.warning("exec_queue_mark_failed_error", error=str(mark_exc))
+            return
 
     # 1. Permanent dedup — skip if execution_queue already has this row.
     if pub_uuid is not None:
