@@ -1,7 +1,7 @@
 # WARP•SENTINEL Report — P3d Signal Scan Loop + Execution Queue
 
 Branch: WARP/CRUSADERBOT-P3D-SIGNAL-SCAN-EXECUTION-QUEUE
-Head SHA: 6c2183d4b5c35663dc67e15e058c1071f61db455
+Head SHA: 470abd360dd0c47682cb9245463fb72e77549831
 Date: 2026-05-07 22:30 Asia/Jakarta
 Tier: MAJOR
 Environment: staging / paper-trading
@@ -35,7 +35,7 @@ PASS — all gates clear.
 - Forge report: projects/polymarket/crusaderbot/reports/forge/p3d-signal-scan-execution-queue.md ✓
 - All 6 sections present: What Was Built / Architecture / Files / Working / Known Issues / What Is Next ✓
 - Branch: WARP/CRUSADERBOT-P3D-SIGNAL-SCAN-EXECUTION-QUEUE ✓ (exact match)
-- Head SHA: 6c2183d4b5c35663dc67e15e058c1071f61db455 ✓ (matches task)
+- Head SHA: 470abd360dd0c47682cb9245463fb72e77549831 ✓ (matches task)
 - No phase*/ folders: confirmed via find — none ✓
 - Domain structure: services/signal_scan/ created under project root ✓
 - PR body updated: prerequisite PR #895 (d25f4fda) merged, no duplicate STRATEGY_AVAILABILITY entry ✓
