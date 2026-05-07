@@ -1,246 +1,239 @@
-# WARP•SENTINEL Report — P3d Signal Scan Loop + Execution Queue
+# WARP•SENTINEL Report — P3d Signal Scan + Execution Queue
 
 Branch: WARP/CRUSADERBOT-P3D-SIGNAL-SCAN-EXECUTION-QUEUE
-Head SHA: 470abd360dd0c47682cb9245463fb72e77549831
-Date: 2026-05-07 22:30 Asia/Jakarta
+PR: #897
+Head SHA: 0e99bb413598b1614979b6b06f3063624755ea2f
+Date: 2026-05-07 23:45 Asia/Jakarta
 Tier: MAJOR
-Environment: staging / paper-trading
+Claim Level: FULL RUNTIME INTEGRATION (scoped P3d path — signal_following scan loop, execution queue, risk gate wiring)
 
 ---
 
-## 1. Test Plan
+## TEST PLAN
 
-Phases 0–5 per CLAUDE.md WARP•SENTINEL protocol.
-Scope: P3d signal_following scan loop + execution queue + subscribe/unsubscribe
-enrollment + migrations 011/012. Not in scope: live trading, R12 Fly.io
-deployment, per-user MarketFilters, execution_queue retry policy.
+Environment: dev (no live capital, activation guards NOT SET)
+Pipeline stages validated: Enrolled-user load → strategy.scan → risk gate → execution_queue insert → router_execute → queue status update
+Validation target:
+- STRATEGY_AVAILABILITY["signal_following"] key matches strategy name + risk_profile_compatibility
+- Risk gate is mandatory before every queue insert or router_execute call
+- execution_queue UNIQUE partial index prevents re-execution across scan ticks
+- subscribe/unsubscribe enrollment wired through user_strategies
+- Activation guards NOT SET and NOT mutated in new code
+- Kelly fraction unchanged at 0.25
+- CI green
 
----
-
-## 2. Environment
-
-| Component | Status |
-|---|---|
-| Infra (DB pool, scheduler) | ENFORCED (staging) |
-| Risk gate | ENFORCED |
-| Telegram | warn-only (paper) |
-| Activation guards | NOT SET — paper-only validation |
+Phases executed: 0 (Pre-Test), 1 (Functional), 2 (Pipeline E2E), 3 (Failure Modes),
+4 (Async Safety), 5 (Risk Rules), 6 (Latency), 7 (Infra), 8 (Telegram)
 
 ---
 
-## 3. Phase 0 — Pre-Test
+## FINDINGS
 
-PASS — all gates clear.
+### Phase 0 — Pre-Test
 
-- Forge report: projects/polymarket/crusaderbot/reports/forge/p3d-signal-scan-execution-queue.md ✓
-- All 6 sections present: What Was Built / Architecture / Files / Working / Known Issues / What Is Next ✓
-- Branch: WARP/CRUSADERBOT-P3D-SIGNAL-SCAN-EXECUTION-QUEUE ✓ (exact match)
-- Head SHA: 470abd360dd0c47682cb9245463fb72e77549831 ✓ (matches task)
-- No phase*/ folders: confirmed via find — none ✓
-- Domain structure: services/signal_scan/ created under project root ✓
-- PR body updated: prerequisite PR #895 (d25f4fda) merged, no duplicate STRATEGY_AVAILABILITY entry ✓
-- CI: Lint + Test ✓, Trigger WARP CMD Gate ✓ (all 3 check runs passed)
-- PROJECT_STATE.md: minor drift (test count 459→463, timestamp stale) — corrected in this commit
+- PASS: Forge report at correct path with all 6 mandatory sections
+  `projects/polymarket/crusaderbot/reports/forge/p3d-signal-scan-execution-queue.md`
+- PASS: PROJECT_STATE.md updated (Last Updated: 2026-05-07 22:30 Asia/Jakarta)
+- PASS: No phase*/ folders or legacy paths detected
+- PASS: Hard-delete policy followed — no migrated files at original path
+- PASS: Implementation evidence present for all critical layers
+- NOTE: PROJECT_STATE.md on PR HEAD was pre-populated with a sentinel verdict (96/100)
+  before this validation run. Scored independently. Final score: 94/100.
 
----
+### Phase 1 — Functional Testing
 
-## 4. Findings
+- PASS: 24 hermetic tests in `tests/test_signal_scan_job.py`
+  All required paths covered: happy path, dedup (pre-check + concurrent), rejection,
+  router failure, market not synced, gate context build error, scan isolation per user.
+- PASS: 3 additional tests verify STRATEGY_AVAILABILITY match:
+  `test_signal_following_matches_strategy_name` (file:line 149)
+  asserts `strategy.name == "signal_following"`,
+  `strategy.name in K.STRATEGY_AVAILABILITY`, and
+  `set(strategy.risk_profile_compatibility) == set(K.STRATEGY_AVAILABILITY["signal_following"])`
+- PASS: 4 tests in `tests/test_signal_following.py` cover subscribe/unsubscribe enrollment
+- PASS: CI Lint + Test → success (both runs, completed 2026-05-07T17:45:07Z)
+- MINOR-01: Forge report states "459/459 tests green"; PR body states "463/463".
+  Delta = 4 (test_signal_following.py tests added after forge report written).
+  CI confirms actual passing count. Not a blocker.
 
-### Phase 1 — Functional
+### Phase 2 — Pipeline End-to-End
 
-PASS — all claimed behaviors verified against code evidence.
-
-**Enrollment query** (signal_scan_job.py:60–95):
-- Queries user_strategies WHERE strategy_name='signal_following' AND enabled=TRUE ✓
-- Joins users, wallets, user_settings, user_risk_profile — no sub_accounts (removed) ✓
-- Filters: access_tier>=3, auto_trade_on=TRUE, paused=FALSE ✓
-
-**_process_candidate pipeline** (signal_scan_job.py:270–394) — mandatory ordering:
-
-1. Permanent dedup: _publication_already_queued → skip if pub_uuid in execution_queue (line 292) ✓
-2. Market lookup: _load_market → skip if None, log "skipped_market_not_synced" (line 303) ✓
-3. Gate context build: side normalized lowercase, side-aware price via is-not-None (line 237) ✓
-4. risk_evaluate(gate_ctx) — MANDATORY (line 320) ✓
-5. Gate rejection: returns before any insert or execute (line 325–332) ✓ — router unreachable
-6. _insert_execution_queue ON CONFLICT DO NOTHING (line 338) ✓
-7. Concurrent dedup: `if not inserted: return` before router_execute (line 353) ✓
-8. router_execute — called ONLY after gate approval + insert success (line 362) ✓
-9. _mark_executed / _mark_failed (line 380 / 390) ✓
-
-**Side normalization** (signal_scan_job.py:277): `side = cand.side.lower()` — signal_evaluator.py:302
-produces uppercase; normalized once, propagated to key, queue, router ✓
-
-**Price selection** (signal_scan_job.py:238–244): NO→no_price, YES→yes_price;
-is-not-None guards preserve cached 0.0 price; cross-fallback when primary is None ✓
-
-**Allocation default** (signal_scan_job.py:197): `_alloc if _alloc is not None else 0.10`
-— weight=0 preserved (is-not-None, not or-falsy) ✓
-
-**STRATEGY_AVAILABILITY** (domain/risk/constants.py): "signal_following":
-["conservative","balanced","aggressive"] ✓ — gate step 4 enforces this dict ✓
-
-**Scheduler** (scheduler.py:460–461): sf_scan_job.run_once, id="signal_following_scan",
-max_instances=1, coalesce=True — separate from legacy run_signal_scan ✓
-
-**Subscribe enrollment** (signal_feed_service.py):
-- New sub: upserts user_strategies ON CONFLICT DO UPDATE SET enabled=TRUE ✓
-- Existing sub ("exists" path): same upsert in early-return branch — covers pre-existing subscribers ✓
-- Unsubscribe: counts remaining active subs; disables user_strategies if remaining=0 ✓
-
-**Migrations**:
-- 011_execution_queue.sql: CREATE TABLE IF NOT EXISTS + UNIQUE partial index (user_id, publication_id) WHERE publication_id IS NOT NULL + 2 supporting indexes; idempotent ✓
-- 012_backfill_signal_following_strategy.sql: INSERT DISTINCT active subscribers ON CONFLICT DO UPDATE; idempotent ✓
-
-### Phase 2 — Test Evidence
-
-PASS — 463/463 green (CI confirmed, local verified).
-
-Key coverage mapped to runtime claims:
-- test_strategy_availability_includes_signal_following / test_signal_following_matches_strategy_name ✓
-- test_build_user_context_* (happy path, clamp 0–1, sub_account fallback) ✓
-- test_build_idempotency_key_* (determinism, side difference, pub difference, sf: prefix) ✓
-- test_insert_execution_queue_returns_true_on_new / _false_on_conflict ✓
-- test_process_candidate_skips_when_already_queued (permanent dedup) ✓
-- test_process_candidate_skips_when_market_not_synced ✓
-- test_process_candidate_logs_rejection_and_does_not_execute (gate mandatory) ✓
-- test_process_candidate_happy_path_inserts_queue_and_executes ✓
-- test_process_candidate_marks_failed_when_router_raises ✓
-- test_process_candidate_skips_when_concurrent_insert_conflict ✓
-- test_run_once_scan_failure_does_not_stop_other_users (per-user isolation) ✓
-- test_subscribe_upserts_user_strategies_when_already_subscribed (exists-path fix) ✓
-- test_subscribe_upserts_user_strategies_on_success ✓
-- test_unsubscribe_disables_strategy_when_last_subscription ✓
-- test_unsubscribe_keeps_strategy_enabled_when_other_subs_remain ✓
+- PASS: `signal_scan_job.py` — full path verified:
+  `_load_enrolled_users` → `strategy.scan` → `_publication_already_queued` →
+  `_load_market` → `_build_gate_context` → `risk_evaluate` → `_insert_execution_queue`
+  → `router_execute` → `_mark_executed` / `_mark_failed`
+- PASS: No bypass path exists — `router_execute` is inside the
+  `if not result.approved: return` guard (signal_scan_job.py:258)
+- PASS: `_insert_execution_queue` only reached after `result.approved = True`
+- PASS: scheduler.py: `signal_following_scan` job wired at
+  `sf_scan_job.run_once, SIGNAL_SCAN_INTERVAL, max_instances=1, coalesce=True` (scheduler.py:258)
+- PASS: Old `run_signal_scan` (copy_trade) runs in parallel — no interference;
+  each job has its own `max_instances=1` guard
 
 ### Phase 3 — Failure Modes
 
-PASS with one documented limitation.
-
-| Scenario | Handling | Location |
-|---|---|---|
-| DB down on load_users | Caught, logged, returns | signal_scan_job.py:408–411 |
-| Per-user scan exception | Caught, logged, continues | signal_scan_job.py:426–430 |
-| Per-candidate unhandled | Caught, logged | signal_scan_job.py:438–446 |
-| Risk gate rejection | Logged, early return | signal_scan_job.py:325–332 |
-| Router raises | Caught, _mark_failed | signal_scan_job.py:387–393 |
-| _mark_failed DB error | Caught in inner try/except | signal_scan_job.py:390–393 |
-| Market not synced | skipped_market_not_synced | signal_scan_job.py:304–306 |
-| Duplicate pub (permanent) | execution_queue UNIQUE index | migration 011 |
-| Concurrent insert | ON CONFLICT DO NOTHING | signal_scan_job.py:338–351 |
-| Strategy not registered | KeyError caught, logged | signal_scan_job.py:418–420 |
-
-Documented limitation (forge report, not a defect): execution_queue 'failed' rows have
-no retry policy — permanent failure on router raise. Future lane. Not in scope P3d.
+- PASS: `_load_enrolled_users` failure → log + early return; tick does not crash
+  (signal_scan_job.py:303)
+- PASS: Strategy not registered → log + early return (signal_scan_job.py:313)
+- PASS: Per-user scan failure isolated; other users in tick unaffected
+  (signal_scan_job.py:329 — outer try/except per user loop)
+- PASS: Market not synced → `"skipped_market_not_synced"` log, return
+  (signal_scan_job.py:221)
+- PASS: Risk rejection → `"rejected"` log with reason + failed_step, return
+  (signal_scan_job.py:247)
+- PASS: Router raises → `_mark_failed` + `"failed"` log; scan continues
+  (signal_scan_job.py:281)
+- PASS: Concurrent tick race → `ON CONFLICT DO NOTHING` returns False →
+  `"skipped_concurrent_dedup"` log, return (signal_scan_job.py:261)
+- PASS: Dedup pre-check failure (DB error) → log warning + assumes not-queued
+  (signal_scan_job.py:215) — safe fallback; gate idempotency_keys catches the dup
+- MINOR-04: When `pub_uuid is None`, the pre-check dedup (execution_queue UNIQUE
+  partial index) does not apply — the index is `WHERE publication_id IS NOT NULL`.
+  Multiple NULL-pub rows can accumulate; inner idempotency_keys (30 min) mitigates
+  but does not permanently prevent re-runs. For signal_following, candidates carry
+  a publication_id from signal_publications; this is a theoretical edge case only.
 
 ### Phase 4 — Async Safety
 
-PASS.
-
-- No import threading in signal_scan_job.py ✓
-- No blocking HTTP in scan: _load_market / _load_enrolled_users are asyncpg only ✓
-- SignalFollowingStrategy.scan() pure DB reads (P3c SENTINEL 100/100 baseline) ✓
-- AsyncIOScheduler max_instances=1 — single concurrent tick enforced ✓
-- No shared mutable state between user iterations ✓
-- UserContext / MarketFilters instantiated fresh per iteration ✓
+- PASS: No `import threading` anywhere in new files
+- PASS: All DB calls use `async with pool.acquire()` — no sync DB calls
+- PASS: `subscribe()` uses `pg_advisory_xact_lock(hashtext($1))` to serialise
+  concurrent cap checks — no race condition possible (signal_feed_service.py:193)
+- PASS: `_insert_execution_queue` uses `ON CONFLICT DO NOTHING RETURNING id`
+  — concurrent tick safety at the DB boundary (signal_scan_job.py:103)
+- PASS: `_mark_executed` and `_mark_failed` are idempotent; double-call is a no-op
+- PASS: Exception isolation per candidate: outer `try/except` in candidate loop
+  (signal_scan_job.py:329) — no state corruption across users
 
 ### Phase 5 — Risk Rules
 
-PASS — all hard rules enforced.
+- PASS: `KELLY_FRACTION = 0.25` (constants.py:8)
+- PASS: Gate step 13 asserts: `assert 0 < K.KELLY_FRACTION <= 0.5` (gate.py:171)
+  Full Kelly (a=1.0) structurally impossible
+- PASS: `MAX_POSITION_PCT = 0.10` (constants.py:9)
+- PASS: `DAILY_LOSS_HARD_STOP = -2_000.0` (constants.py:12)
+- PASS: `MAX_DRAWDOWN_HALT = 0.08` (constants.py:13)
+- PASS: `MIN_LIQUIDITY = 10_000.0` (constants.py:14)
+- PASS: `STRATEGY_AVAILABILITY["signal_following"] = ["conservative","balanced","aggressive"]`
+  (constants.py:38)
+- PASS: Kill switch checked at gate step 1 — live_fallback triggered on live user
+  (gate.py:68)
+- PASS: Activation guards verified in `_passes_live_guards`:
+  `ENABLE_LIVE_TRADING AND EXECUTION_PATH_VALIDATED AND CAPITAL_MODE_CONFIRMED AND access_tier>=4`
+  (gate.py:130) — none set, all new code defaults to paper mode
+- PASS: `trading_mode` sourced from `user_settings.trading_mode` (default 'paper');
+  no new code sets or mutates any activation flag
+- PASS: Signal dedup: idempotency_keys 30-min window (gate step 10) +
+  execution_queue UNIQUE partial index (outer permanent dedup)
 
-| Rule | Location | Status |
-|---|---|---|
-| Risk gate mandatory before queue insert | signal_scan_job.py:319–332 | ✓ ENFORCED |
-| Risk gate mandatory before router_execute | signal_scan_job.py:353–379 | ✓ ENFORCED |
-| Kelly a=0.25 hard cap | gate.py:270, constants.py:KELLY_FRACTION=0.25 | ✓ ENFORCED |
-| Max position <= 10% | gate.py:271–275, MAX_POSITION_PCT=0.10 | ✓ ENFORCED |
-| Activation guards NOT SET | No mutation in any new file | ✓ CONFIRMED |
-| Live guard mandatory | gate.py:280, _passes_live_guards | ✓ ENFORCED |
-| Paper fallback when guards unset | gate.py:281–298 | ✓ ENFORCED |
-| No ENABLE_LIVE_TRADING bypass | No bypass path found | ✓ CONFIRMED |
+### Phase 6 — Latency
+
+- PASS: No HTTP calls in scan path — market data from synced `markets` table
+- PASS: `strategy.scan()` is pure DB reads (signal_publications, user_signal_subscriptions)
+- PASS: Risk gate DB calls use connection pool — no connection setup overhead per call
+- MINOR-05: No explicit per-tick latency instrumentation (ingest / signal / exec timing)
+  in signal_scan_job.py. APScheduler `max_instances=1` prevents overlapping ticks
+  but does not bound or record actual tick duration. Low priority — covered by
+  job_tracker (scheduler.py:285) which records job-level duration.
+
+### Phase 7 — Infra
+
+- PASS: `migrations/011_execution_queue.sql` — idempotent (`IF NOT EXISTS` on all DDL)
+  Table, UNIQUE partial index, and support indexes all safe to re-run
+- PASS: `migrations/012_backfill_signal_following_strategy.sql` — idempotent
+  (`INSERT ... ON CONFLICT (user_id, strategy_name) DO UPDATE SET enabled = TRUE`)
+- PASS: PostgreSQL FK: `execution_queue.user_id REFERENCES users(id) ON DELETE CASCADE`
+- PASS: Subscribe path writes `user_strategies` enrollment atomically within same
+  transaction as subscription insert (signal_feed_service.py:225)
+- PASS: Unsubscribe path disables `user_strategies.enabled` when no active
+  subscriptions remain (signal_feed_service.py:271)
+- NOTE: Redis not used directly in scan path — idempotency_keys table (PostgreSQL)
+  used for 30-min dedup window. Consistent with prior approved system design.
+
+### Phase 8 — Telegram
+
+- PASS: Kill switch accessible via existing Telegram commands (prior PR, unchanged)
+- PASS: `router_execute` (paper path) triggers existing trade notifications from
+  prior PRs when a candidate is accepted and executed
+- MINOR-06: Scan-level outcomes (accepted / rejected / skipped_dedup / failed) are
+  emitted via structlog only — no Telegram alert to the user. A user subscribed to
+  a feed cannot observe why their signal_following did not execute on a given tick.
+  By design for a background job (no per-tick spam); operator observability via
+  structured logs. No Telegram commands added in P3d scope.
+- PASS: No new bot commands in P3d scope — Telegram surface unchanged
 
 ---
 
-## 5. Critical Issues
+## CRITICAL ISSUES
 
 None found.
 
 ---
 
-## 6. Stability Score
+## STABILITY SCORE
 
-| Component | Weight | Score | Notes |
+| Category | Weight | Score | Notes |
 |---|---|---|---|
-| Architecture | 20% | 20/20 | Registry-based, dual-layer dedup, correct pipeline separation |
-| Functional | 20% | 20/20 | All claimed behaviors verified; enrollment fix complete |
-| Failure modes | 20% | 18/20 | Comprehensive isolation; retry absent (documented, not a defect) |
-| Risk rules | 20% | 20/20 | Kelly capped, no bypass, activation guards NOT SET confirmed |
-| Infra + Telegram | 10% | 9/10 | Scheduler wired; migration 012 backfill handles existing subscribers |
-| Latency | 10% | 9/10 | Asyncio only, no HTTP in scan; no regression vs P3c baseline |
-
-**Total: 96/100**
-
----
-
-## 7. GO-LIVE Status
-
-**APPROVED — Score 96/100. Zero critical issues.**
-
-Merge gate conditions (all satisfied for paper/staging):
-
-- STRATEGY_AVAILABILITY["signal_following"] exact match ✓ (PR #895 merged prerequisite)
-- Risk gate mandatory — verified no execution path bypasses it ✓
-- execution_queue UNIQUE index prevents re-execution across scan ticks ✓
-- subscribe/unsubscribe user_strategies enrollment wired ✓
-- Migration 012 backfill handles pre-existing active subscribers ✓
-- Activation guards NOT SET, no mutations in new code ✓
-- Kelly unchanged at 0.25 ✓
-- 463/463 tests green ✓
-
-Deferred (not blocking merge):
-- execution_queue retry policy for 'failed' rows (future lane)
-- Per-user MarketFilters configuration (future lane)
-- F401 ruff cleanup (LOW, known issue)
-
-Live activation remains gated on EXECUTION_PATH_VALIDATED + CAPITAL_MODE_CONFIRMED
-+ ENABLE_LIVE_TRADING — NOT SET, NOT in scope for P3d.
+| Architecture | 20% | 19/20 | Dual-layer dedup, mandatory gate, user isolation. -1 MarketFilters hardcoded |
+| Functional | 20% | 19/20 | 24+4 tests, all paths covered, CI green. -1 forge/PR count discrepancy |
+| Failure Modes | 20% | 19/20 | All modes handled. -1 NULL pub_uuid permanent dedup gap |
+| Risk Rules | 20% | 20/20 | Kelly 0.25 asserted, all guards verified, STRATEGY_AVAILABILITY correct |
+| Infra + Telegram | 10% | 8/10 | Migrations idempotent, DB correct. -1 no scan-level TG alerts, -1 no explicit Redis usage |
+| Latency | 10% | 9/10 | No HTTP in scan path. -1 no per-tick latency instrumentation |
+| **Total** | **100%** | **94/100** | |
 
 ---
 
-## 8. Fix Recommendations
+## GO-LIVE STATUS
 
-None required. Zero critical issues.
+**VERDICT: APPROVED**
 
-All P1/P2 items raised by Codex during PR review were resolved before SENTINEL:
+Score: 94/100. Zero critical issues. All mandatory risk rules verified in code.
+Risk gate is structurally mandatory — no path to execution without approval.
+Activation guards are NOT SET and NOT mutated. System defaults to paper mode
+for all signal_following candidates under current configuration.
+Dual-layer deduplication prevents re-execution across scan ticks.
+Asyncio-only, per-user scan isolation, idempotent migrations.
 
-- P1 side normalization — resolved caa6c5d ✓
-- P1 NO price selection — resolved caa6c5d ✓
-- P2 sub_accounts JOIN (not in migrations/) — resolved caa6c5d ✓
-- P1 user enrollment gap (subscribe never wrote user_strategies) — resolved 35b6392 ✓
-- P1 existing subscriber backfill (exists-path missed, no migration) — resolved 4e0fd6f ✓
-- P2 zero price preservation (or-falsy discarded 0.0) — resolved a62809f ✓
-- P2 zero weight preservation (or-falsy discarded weight=0) — resolved 6c2183d ✓
+P3d is safe to merge. Final deployment decision rests with WARP🔹CMD.
 
 ---
 
-## 9. Telegram Preview
+## FIX RECOMMENDATIONS
 
-P3d does not add new Telegram commands or user-facing alerts. Scan outcomes are
-internal structured JSON logs (structlog). Existing operator commands apply:
+No critical fixes required. Minor items for future lanes:
 
-- /status — system health + activation guard state
-- /kill — kill switch (halts all execution including signal_following_scan tick)
-- /jobs — APScheduler job monitor (job id "signal_following_scan" visible)
+- MINOR-01 (LOW): Update forge report test count from 459 to 463. Cosmetic.
+- MINOR-04 (LOW): Add execution_queue dedup path for NULL publication_id candidates
+  (non-blocking — signal_following always provides pub_id; only affects future
+  strategies that omit publication_id).
+- MINOR-05 (LOW): Add per-tick duration logging in `run_once()` to surface
+  ingest / scan / exec latency in structured logs.
+- MINOR-06 (LOW): Consider a daily digest Telegram alert summarising signal_following
+  scan activity (accepted / rejected counts) for subscribed users. Avoids per-tick
+  spam while giving users observability.
+- Unused `struct` import in `signal_scan_job.py:10` — part of pre-existing F401
+  cleanup backlog (KNOWN ISSUES). Remove in ruff cleanup lane.
 
-Alert format (existing pipeline, paper mode):
+---
+
+## TELEGRAM PREVIEW
+
+No new Telegram commands or alert types introduced in P3d.
+
+Existing flow when a candidate is accepted:
 ```
-📊 Signal Scan — accepted
-User: <user_id>  Market: <market_id>  Side: yes/no
-Size: $X.XX USDC  Mode: paper
+[router_execute (paper)] → existing position-open notification
+✅ Trade executed: signal_following
+Market: [question]
+Side: YES | Size: $X.XX USDC | Mode: paper
 ```
 
----
+Kill switch (unchanged, accessible to operator):
+```
+/killswitch on   → halts all scan ticks at gate step 1
+/killswitch off  → resumes scan
+```
 
-Validation Tier: MAJOR
-Claim Level: FULL RUNTIME INTEGRATION (scoped P3d — signal_following scan + execution queue + risk gate wiring)
-Validated by: WARP•SENTINEL
-NEXT GATE: Return to WARP🔹CMD for merge decision → R12 final Fly.io deployment
+Scan-level rejection/dedup outcomes: structlog only (no user Telegram alert).
+Daily P&L summary (existing, unchanged) provides net position visibility.
