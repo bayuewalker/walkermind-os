@@ -1082,6 +1082,27 @@ def test_unsubscribe_returns_true_and_decrements_count():
     assert len(decs) == 1
 
 
+def test_subscribe_upserts_user_strategies_when_already_subscribed():
+    # User already has an active subscription (existing is not None path).
+    # The upsert must still run so pre-existing subscribers get enrolled.
+    conn = _AtomicConn(
+        feed_row={"status": "active"},
+        existing_sub_row={"id": uuid4()},  # already subscribed
+        active_count=1,
+    )
+    with _patch_svc_pool(conn):
+        result = asyncio.run(svc.subscribe(
+            user_id=_USER_UUID, feed_id=_FEED_UUID,
+        ))
+    assert result == "exists"
+    strategy_inserts = [
+        e for e in conn.sql_log
+        if e[0] == "execute" and "INSERT INTO user_strategies" in e[1]
+    ]
+    assert len(strategy_inserts) == 1
+    assert "signal_following" in strategy_inserts[0][1]
+
+
 def test_subscribe_upserts_user_strategies_on_success():
     conn = _AtomicConn(
         feed_row={"status": "active"},

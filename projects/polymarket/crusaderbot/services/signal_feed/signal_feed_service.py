@@ -270,6 +270,16 @@ async def subscribe(
                 uuid_user, uuid_feed,
             )
             if existing is not None:
+                # Ensure enrollment is set for users who subscribed before
+                # this fix was deployed (pre-existing subscription, no row in
+                # user_strategies yet).
+                await conn.execute(
+                    "INSERT INTO user_strategies "
+                    "    (user_id, strategy_name, weight, enabled) "
+                    "VALUES ($1, 'signal_following', 1.0, TRUE) "
+                    "ON CONFLICT (user_id, strategy_name) DO UPDATE SET enabled = TRUE",
+                    uuid_user,
+                )
                 return "exists"
 
             active_count = int(await conn.fetchval(
