@@ -109,7 +109,8 @@ async def _publication_already_queued(user_id: UUID, publication_id: UUID) -> bo
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             "SELECT 1 FROM execution_queue "
-            " WHERE user_id = $1 AND publication_id = $2",
+            " WHERE user_id = $1 AND publication_id = $2"
+            "   AND status IN ('executed', 'failed')",
             user_id, publication_id,
         )
     return row is not None
@@ -137,7 +138,16 @@ async def _insert_execution_queue(
                  suggested_size_usdc, final_size_usdc, idempotency_key,
                  chosen_mode, status)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'queued')
-            ON CONFLICT DO NOTHING
+            ON CONFLICT (user_id, publication_id) WHERE publication_id IS NOT NULL
+            DO UPDATE SET
+                status              = 'queued',
+                queued_at           = NOW(),
+                idempotency_key     = EXCLUDED.idempotency_key,
+                suggested_size_usdc = EXCLUDED.suggested_size_usdc,
+                final_size_usdc     = EXCLUDED.final_size_usdc,
+                error_detail        = NULL,
+                executed_at         = NULL
+            WHERE execution_queue.status = 'queued'
             RETURNING id
             """,
             user_id, strategy_name, market_id, side, publication_id,
