@@ -770,7 +770,7 @@ function AnalyticsPanel({ api }: { api: ReturnType<typeof makeApi> }) {
         />
         <AnalyticCard
           label="Best Trade"
-          value={data.best_trade != null ? `+$${data.best_trade.pnl_usdc.toFixed(2)}` : "—"}
+          value={data.best_trade != null ? `${data.best_trade.pnl_usdc >= 0 ? "+" : ""}$${data.best_trade.pnl_usdc.toFixed(2)}` : "—"}
           sub={data.best_trade?.market_question?.slice(0, 30) ?? undefined}
           color="var(--grn,#00FF9C)"
         />

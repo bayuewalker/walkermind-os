@@ -244,7 +244,7 @@ export function AutoTradePage() {
           <div className="mb-3 px-3 py-2 rounded border border-gold/30 bg-gold/5 flex items-center gap-2">
             <span className="text-gold text-[11px]">🎯</span>
             <p className="text-[10px] font-mono text-ink-2">
-              Configuring for: <span className="text-gold font-bold">{decodeURIComponent(marketName)}</span>
+              Configuring for: <span className="text-gold font-bold">{marketName}</span>
             </p>
           </div>
         )}

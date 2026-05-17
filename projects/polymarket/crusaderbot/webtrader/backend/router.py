@@ -812,7 +812,10 @@ async def get_portfolio_analytics(user: _CurrentUser) -> PortfolioAnalytics:
 
     pnls = [float(r["pnl_usdc"]) for r in rows]
 
-    # Max drawdown: peak-to-trough on cumulative equity curve
+    # Max drawdown: peak-to-trough on cumulative equity curve.
+    # When peak > 0: standard percentage drawdown against high watermark.
+    # When peak == 0 (all-losses case): express as 100% — the curve never
+    # recovered above the starting point, so the full loss is the drawdown.
     running = 0.0
     peak = 0.0
     max_dd = 0.0
@@ -820,7 +823,12 @@ async def get_portfolio_analytics(user: _CurrentUser) -> PortfolioAnalytics:
         running += p
         if running > peak:
             peak = running
-        dd = (peak - running) / peak if peak > 0 else 0.0
+        if peak > 0:
+            dd = (peak - running) / peak
+        elif running < 0:
+            dd = 1.0  # 100% drawdown from zero starting point
+        else:
+            dd = 0.0
         if dd > max_dd:
             max_dd = dd
 
