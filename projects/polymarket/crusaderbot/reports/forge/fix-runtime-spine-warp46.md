@@ -25,7 +25,7 @@ TG /start
   → users.py:upsert_user (line 61)         [user + settings + wallet + $1k seed + signal_following enroll]
   → scheduler.py:run_signal_scan (line 239) [180s tick, auto_trade_on users]
   → domain/signal/copy_trade.py:CopyTradeStrategy.scan [only active strategy]
-  → domain/risk/gate.py:evaluate (line 204) [14 cumulative gates]
+  → domain/risk/gate.py:evaluate (line 204) [15 cumulative gates, codes 0–14]
   → domain/execution/router.py:execute      [routes to paper (default) or live (guarded)]
   → domain/execution/paper.py:execute (line 18) [atomic: order + position + ledger debit]
   → services/trade_notifications/notifier.py:notify_entry [TG entry receipt]
@@ -56,7 +56,7 @@ No production code modified. State files NOT modified (per issue #1206 instructi
 All 12 runtime spine steps verified REAL:
 - `/start` handler, `upsert_user`, `seed_paper_capital`, `_enroll_signal_following` — active and idempotent
 - `run_signal_scan` → `CopyTradeStrategy.scan` — live loop every 180s
-- `gate.py:evaluate` — 14-gate risk check with full audit logging to risk_log table
+- `gate.py:evaluate` — 15-gate risk check (codes 0–14) with full audit logging to risk_log table
 - `paper.py:execute` — atomic order + position open + ledger debit
 - `exit_watcher.run_once` — 30s tick, live Polymarket price fetch, TP/SL evaluation
 - `paper.py:close_position` — atomic position close + ledger credit
