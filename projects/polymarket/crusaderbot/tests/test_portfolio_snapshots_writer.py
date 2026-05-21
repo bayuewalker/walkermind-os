@@ -23,8 +23,8 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from projects.polymarket.crusaderbot.services import portfolio_snapshots
-from projects.polymarket.crusaderbot.domain.execution import paper as paper_exec
+from crusaderbot.services import portfolio_snapshots
+from crusaderbot.domain.execution import paper as paper_exec
 
 
 def _run(coro):
