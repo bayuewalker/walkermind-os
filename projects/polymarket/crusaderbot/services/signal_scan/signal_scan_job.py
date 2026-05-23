@@ -395,8 +395,8 @@ async def _insert_scan_run(
     mode: str,
 ) -> None:
     """Insert a scan_runs row at tick start. Non-fatal on error."""
-    pool = get_pool()
     try:
+        pool = get_pool()
         async with pool.acquire() as conn:
             await conn.execute(
                 """
@@ -412,8 +412,8 @@ async def _insert_scan_run(
 
 async def _finish_scan_run(run_id: str, tel: ScanTelemetry) -> None:
     """UPDATE the scan_runs row at tick end with full telemetry. Non-fatal on error."""
-    pool = get_pool()
     try:
+        pool = get_pool()
         async with pool.acquire() as conn:
             await conn.execute(
                 """
