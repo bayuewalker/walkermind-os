@@ -119,22 +119,26 @@ def _lib_candidate(
 def _approved_result(size: float = 10.0) -> TradeResult:
     return TradeResult(
         approved=True,
+        mode="paper",
+        order_id=uuid4(),
+        position_id=uuid4(),
         rejection_reason=None,
         failed_gate_step=None,
-        final_size_usdc=Decimal(str(size)),
         chosen_mode="paper",
-        mode="paper",
+        final_size_usdc=Decimal(str(size)),
     )
 
 
 def _rejected_result(reason: str = "insufficient_liquidity", step: int = 11) -> TradeResult:
     return TradeResult(
         approved=False,
+        mode="paper",
+        order_id=None,
+        position_id=None,
         rejection_reason=reason,
         failed_gate_step=step,
-        final_size_usdc=None,
         chosen_mode="paper",
-        mode="paper",
+        final_size_usdc=None,
     )
 
 
