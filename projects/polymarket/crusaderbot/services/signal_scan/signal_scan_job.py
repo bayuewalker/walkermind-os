@@ -832,7 +832,6 @@ async def _process_candidate(
                 log.warning("exec_queue_mark_executed_failed", error=str(exc))
         logger.info(
             "paper_execution",
-            event="paper_execution",
             market_id=cand.market_id,
             side=side,
             size=str(final_size),
@@ -900,8 +899,10 @@ async def run_once() -> None:
     from ...config import get_settings as _get_settings
     from ...domain.strategy.registry import StrategyRegistry as _Registry
 
-    _settings = _get_settings()
-    _live_trading: bool = bool(_settings.ENABLE_LIVE_TRADING)
+    try:
+        _live_trading: bool = bool(_get_settings().ENABLE_LIVE_TRADING)
+    except Exception:
+        _live_trading = False
     _mode: str = "LIVE" if _live_trading else "PAPER"
 
     # Count all strategies known to the process (lib + domain registry).
@@ -990,7 +991,6 @@ async def run_once() -> None:
 
             user_log.info(
                 "strategy_run",
-                event="strategy_run",
                 strategy=lib_name,
                 candidates_emitted=len(cands),
                 zero_reason="filter_or_no_match" if not cands else None,
@@ -1033,7 +1033,6 @@ async def run_once() -> None:
             confluence_signals += len(domain_cands)
             user_log.info(
                 "strategy_run",
-                event="strategy_run",
                 strategy=_CONFLUENCE_SCALPER_NAME,
                 candidates_emitted=len(domain_cands),
                 zero_reason="filter_or_no_match" if not domain_cands else None,
@@ -1087,7 +1086,6 @@ async def run_once() -> None:
 
     logger.info(
         "scan_input",
-        event="scan_input",
         scan_run_id=run_id,
         users_evaluated=tel.users_evaluated,
         markets_seen=tel.markets_seen,
