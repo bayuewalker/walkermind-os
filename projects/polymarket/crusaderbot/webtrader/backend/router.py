@@ -266,7 +266,7 @@ async def get_market_feed(user: _CurrentUser) -> list[MarketFeedItem]:
                       yes_price, liquidity_usdc, resolution_at
                FROM markets
                WHERE slug LIKE '%updown%'
-                 AND split_part(slug, '-updown-', 1) IN ('btc', 'eth', 'sol', 'bnb')
+                 AND split_part(slug, '-updown-', 1) IN ('btc', 'eth', 'sol', 'bnb', 'xrp', 'doge', 'hype')
                  AND resolved = false
                  AND resolution_at > now()
                  AND yes_price IS NOT NULL
@@ -275,7 +275,8 @@ async def get_market_feed(user: _CurrentUser) -> list[MarketFeedItem]:
         )
 
     now = datetime.now(timezone.utc)
-    asset_labels = {"btc": "BTC", "eth": "ETH", "sol": "SOL", "bnb": "BNB"}
+    asset_labels = {"btc": "BTC", "eth": "ETH", "sol": "SOL", "bnb": "BNB",
+                    "xrp": "XRP", "doge": "DOGE", "hype": "HYPE"}
     feed: list[MarketFeedItem] = []
     for r in rows:
         asset_key = str(r["asset"] or "").lower()
@@ -571,9 +572,12 @@ _PRESET_PARAMS: dict[str, dict[str, str | float]] = {
 # the market category filter to Crypto only and requires a timeframe (5m/15m).
 _CRYPTO_SHORT_PRESETS: frozenset[str] = frozenset({"confluence_scalper", "close_sweep"})
 _VALID_TIMEFRAMES: frozenset[str] = frozenset({"5m", "15m"})
-# Assets offered for crypto-short presets; activation defaults to all of them.
-_CRYPTO_SHORT_ASSETS: tuple[str, ...] = ("BTC", "ETH", "SOL", "BNB")
+# Assets offered for crypto-short presets. BTC/ETH/SOL/BNB have deep candle
+# books; XRP/DOGE/HYPE are offered but their books are thinner so they are
+# opt-in. Activation with no explicit selection defaults to BTC only.
+_CRYPTO_SHORT_ASSETS: tuple[str, ...] = ("BTC", "ETH", "SOL", "BNB", "XRP", "DOGE", "HYPE")
 _VALID_ASSETS: frozenset[str] = frozenset(_CRYPTO_SHORT_ASSETS)
+_DEFAULT_CRYPTO_SHORT_ASSETS: tuple[str, ...] = ("BTC",)
 
 # Light per-timeframe params merged into user_settings.strategy_params (JSONB)
 # for the close_sweep preset (expiration_timing lib strategy reads config). The
@@ -629,7 +633,7 @@ async def activate_preset(body: PresetActivateRequest, user: _CurrentUser):
                 detail=f"invalid asset(s): {', '.join(bad)} (expected any of {', '.join(_CRYPTO_SHORT_ASSETS)})",
             )
         if not assets:
-            assets = list(_CRYPTO_SHORT_ASSETS)
+            assets = list(_DEFAULT_CRYPTO_SHORT_ASSETS)
 
     # Auto-lock market category to Crypto only for crypto-short presets;
     # None leaves the existing category_filters untouched for other presets.
