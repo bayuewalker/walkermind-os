@@ -70,7 +70,7 @@ Status       : Phase 9.1 runtime -- bot LIVE on Fly (PAPER only). late_entry_v3 
 - 1 of 43 public tables still has RLS disabled (42 enabled) -- identify the table and enable RLS if it holds user data.
 - Continue closed-beta runtime observation; watch Sentry for new errors after the 2026-05-25 deploys (PR #1340/#1342/#1343/#1344).
 - "Only BTC/ETH open" report (2026-05-26) — diagnosed NOT a bug: per-user audit shows every late_entry_v3 user trades all four majors (e.g. user 7e6fbd20 = BTC 101 / ETH 84 / SOL 68 / BNB 9); SOL ~26% of fills, BNB ~3% (thin candle books). The live open-positions view only shows the current candle window, so at any instant a user may see only BTC/ETH. No fix needed; BNB starvation is liquidity, not logic.
-- Secondary finding (unfixed): domain/execution/paper.py INSERT INTO positions omits market_question (NULL on all rows). Port/Wallet UI unaffected (labels via markets.question JOIN). Decide whether to persist it.
+- FIXED (claude/zealous-brahmagupta-LZaZV): positions.market_question now persisted at open time (paper + live executors) + COALESCE(m.question, p.market_question, …) fallback in WebTrader position read queries. Makes Port/Activity/closed-position labels durable against markets-table pruning of ephemeral candle markets. Historical rows stay NULL but still label via the live markets JOIN.
 
 [KNOWN ISSUES]
 - [ACTIVE] DB_POOL_MAX raised 4→10 (2026-05-25). Monitor if TooManyConnectionsError recurs — Fly Postgres free tier max_connections=25, pool 10 leaves 15 for other clients. If recurs: add PgBouncer or upgrade Fly Postgres plan.

@@ -152,7 +152,7 @@ async def get_activity(user: _CurrentUser, limit: int = 10):
             SELECT p.id, p.status, p.side, p.size_usdc,
                    p.entry_price, p.pnl_usdc, p.exit_reason,
                    p.strategy_type, p.created_at, p.closed_at,
-                   m.question AS market_question
+                   COALESCE(m.question, p.market_question) AS market_question
               FROM positions p
               LEFT JOIN markets m ON m.id = p.market_id
              WHERE p.user_id = $1::uuid
@@ -319,7 +319,7 @@ async def get_positions(
 
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            f"""SELECT p.id, p.market_id, m.question AS market_question,
+            f"""SELECT p.id, p.market_id, COALESCE(m.question, p.market_question) AS market_question,
                        p.side, p.size_usdc, p.entry_price, p.current_price,
                        p.pnl_usdc, p.status, p.mode, p.opened_at, p.closed_at,
                        p.exit_reason, m.resolved AS market_resolved,
@@ -449,7 +449,8 @@ async def close_position_endpoint(
         pos_row = await conn.fetchrow(
             """SELECT p.id, p.user_id, p.market_id, p.side, p.size_usdc,
                       p.entry_price, p.current_price, p.status, p.mode,
-                      m.yes_token_id, m.no_token_id, m.question,
+                      m.yes_token_id, m.no_token_id,
+                      COALESCE(m.question, p.market_question) AS question,
                       u.telegram_user_id
                FROM positions p
                LEFT JOIN markets m ON m.id = p.market_id
@@ -1177,7 +1178,7 @@ async def get_portfolio_analytics(user: _CurrentUser) -> PortfolioAnalytics:
         rows = await conn.fetch(
             """SELECT p.pnl_usdc, p.opened_at, p.closed_at,
                       COALESCE(p.strategy_type, 'unknown') AS strategy_type,
-                      COALESCE(m.question, p.market_id) AS market_question
+                      COALESCE(m.question, p.market_question, p.market_id) AS market_question
                FROM positions p
                LEFT JOIN markets m ON m.id = p.market_id
                WHERE p.user_id = $1::uuid

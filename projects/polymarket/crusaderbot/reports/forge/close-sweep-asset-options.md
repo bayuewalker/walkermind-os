@@ -19,6 +19,12 @@ chips with BTC the only one lit by default for a fresh selection.
   default — this avoids the "selected but never fills" experience on low-liquidity
   tickers. Users with a saved `selected_assets` keep their existing choice.
 - Surfaced the three new coins in the Home live candle-market feed.
+- **Persisted `positions.market_question`** at open time (paper + live executors) and
+  added a `COALESCE(m.question, p.market_question, …)` fallback in the WebTrader
+  position read queries. The question text is already available on the signal at open
+  time; it was simply dropped at the INSERT. Candle markets are ephemeral, so once the
+  `markets` row is pruned the label JOIN would otherwise degrade to a raw hash — this
+  makes Port / Activity / closed-position labels durable.
 
 ## 2. Current system architecture
 
@@ -39,6 +45,13 @@ offered/validated/default asset set widened.
   empty-selection default; Home-feed coin filter + `asset_labels` extended)
 - projects/polymarket/crusaderbot/reports/forge/close-sweep-asset-options.md (this report)
 
+- projects/polymarket/crusaderbot/domain/execution/paper.py
+  (INSERT INTO positions now writes market_question)
+- projects/polymarket/crusaderbot/domain/execution/live.py
+  (same INSERT change for the live executor)
+- projects/polymarket/crusaderbot/webtrader/backend/router.py
+  (4 position read queries: m.question -> COALESCE(m.question, p.market_question, …))
+
 No change to integrations/polymarket.py line 213: the full_auto fallback intentionally
 stays on the four deep-book majors when a user has no explicit selection.
 
@@ -58,10 +71,9 @@ stays on the four deep-book majors when a user has no explicit selection.
   current candle window, and not every coin clears the entry gate every candle — so at
   any instant the user may see only BTC/ETH even though SOL fills regularly. BNB is
   genuinely starved by thin candle books (same reason XRP/DOGE/HYPE are opt-in).
-- **Secondary finding (not fixed here):** `domain/execution/paper.py` accepts
-  `market_question` but the `INSERT INTO positions` omits the column, so
-  `positions.market_question` is NULL on all rows. The Port/Wallet UI is unaffected
-  because it labels positions via a JOIN to `markets.question`. Flagged for WARP🔹CMD.
+- `positions.market_question` NULL-on-all-rows is now FIXED (see above). Historical
+  rows stay NULL but still label correctly via the live `markets.question` JOIN; only
+  rows opened after deploy carry the persisted fallback.
 - Frontend `tsc` not run — no node_modules in this environment. Changes are type-safe
   (spreading a readonly string[] default).
 
