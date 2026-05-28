@@ -944,7 +944,7 @@ class OrderLifecycleManager:
         fill_id = event.get("fill_id")
         if not broker_id or not fill_id:
             log.debug(
-                "lifecycle ws_fill: dropping event missing ids", event=event,
+                "lifecycle ws_fill: dropping event missing ids", payload=event,
             )
             return
 
@@ -968,7 +968,7 @@ class OrderLifecycleManager:
         except (TypeError, ValueError, KeyError) as exc:
             log.warning(
                 "lifecycle ws_fill: dropping non-numeric event",
-                event=event, err=str(exc),
+                payload=event, err=str(exc),
             )
             return
         side = str(event.get("side") or order_row["side"]).lower()
