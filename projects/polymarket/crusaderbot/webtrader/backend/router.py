@@ -1383,9 +1383,16 @@ async def ack_all_alerts(user: _CurrentUser) -> dict:
         # INSERT...ON CONFLICT covers users who haven't materialised a
         # user_settings row yet (rare in practice but possible on the
         # signup → settings-write race).
+        # NOT NULL columns (risk_profile, trading_mode, …) carry DEFAULTs in
+        # the migration 001 schema, but we still write the canonical paper-
+        # parity literals here so this endpoint stays aligned with the rest
+        # of the codebase's "explicit > schema default" convention pinned by
+        # test_paper_default_invariant (signup INSERTs are required to spell
+        # trading_mode='paper' so a future schema edit that drops the
+        # default doesn't silently flip a brand-new user to live mode).
         row = await conn.fetchrow(
-            """INSERT INTO user_settings (user_id, alerts_ack_at)
-               VALUES ($1::uuid, NOW())
+            """INSERT INTO user_settings (user_id, alerts_ack_at, trading_mode, risk_profile)
+               VALUES ($1::uuid, NOW(), 'paper', 'balanced')
                ON CONFLICT (user_id) DO UPDATE SET alerts_ack_at = NOW()
                RETURNING alerts_ack_at""",
             user["user_id"],

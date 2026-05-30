@@ -253,6 +253,12 @@ export interface DashboardSummary {
    *  user's auto_trade_on flag. Optional for back-compat with older
    *  payloads — undefined is treated as enabled (FAIL-SAFE). */
   active_preset_globally_enabled?: boolean;
+  /** Server-side "Mark all read" watermark — ISO-8601 with offset, or null
+   *  on a never-acked account. Frontend folds it into markAllReadAt so the
+   *  closed-position alert stream (fetched via /positions, not /alerts)
+   *  honours the same cut-off as the server-filtered /alerts payload.
+   *  Optional for back-compat with older payloads. */
+  alerts_ack_at?: string | null;
 }
 
 export interface PositionItem {

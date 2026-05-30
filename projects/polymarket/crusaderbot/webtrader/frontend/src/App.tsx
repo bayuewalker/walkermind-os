@@ -210,8 +210,8 @@ function AppShell() {
         // cut-off.
         offset === 0 ? api.getDashboard() : Promise.resolve(null),
       ]);
-      if (dashResult.status === "fulfilled" && dashResult.value && (dashResult.value as { alerts_ack_at?: string | null }).alerts_ack_at) {
-        const serverAckMs = Date.parse(String((dashResult.value as { alerts_ack_at?: string | null }).alerts_ack_at));
+      if (dashResult.status === "fulfilled" && dashResult.value && dashResult.value.alerts_ack_at) {
+        const serverAckMs = Date.parse(dashResult.value.alerts_ack_at);
         if (Number.isFinite(serverAckMs)) {
           setMarkAllReadAt((prev) => {
             const next = Math.max(prev, serverAckMs);
@@ -305,12 +305,16 @@ function AppShell() {
     // second setItem here would be a duplicate write.
     setLastSeen(now);
     // Persist server-side. Best-effort: a network failure leaves the local
-    // watermark in place so the click still sticks for this device.
+    // watermark in place so the click still sticks for this device. When
+    // the server responds we ALWAYS adopt its canonical NOW() — a
+    // `serverMs > now` guard would lose the canonical value on a
+    // fast client clock (Date.now() ahead of server) and risk hiding
+    // legitimate alerts that arrive between server-time and client-time.
     api.ackAllAlerts()
       .then((resp) => {
         if (resp.alerts_ack_at) {
           const serverMs = Date.parse(resp.alerts_ack_at);
-          if (Number.isFinite(serverMs) && serverMs > now) {
+          if (Number.isFinite(serverMs)) {
             setMarkAllReadAt(serverMs);
             try { localStorage.setItem(scopeKey(MARK_ALL_READ_AT_KEY_BASE, userKey), String(serverMs)); } catch { /* quota */ }
           }
